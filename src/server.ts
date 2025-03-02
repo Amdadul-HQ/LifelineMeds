@@ -1,29 +1,63 @@
-import express, { Application, Request, Response } from 'express';
-import cors from 'cors';
-import cookieParser from 'cookie-parser';
-// import globalErrorHander from './app/middleware/globalErrorHander';
-// import notFound from './app/middleware/notFound';
-// import router from './app/routes';
-const app: Application = express();
+import { Server } from 'http';
+import mongoose from 'mongoose';
+import app from './app';
+import config from './app/config';
 
-app.use(express.json());
-app.use(cors({ origin: ['https://assigement-04-front-end.vercel.app'],credentials:true }));
-app.use(cookieParser());
+let server: Server | null = null;
 
-// application routes
-app.use('/api/v1', router);
+// Database connection
+async function connectToDatabase() {
+   try {
+      await mongoose.connect(config.db_url as string);
+      console.log('🛢 Database connected successfully');
+   } catch (err) {
+      console.error('Failed to connect to database:', err);
+      process.exit(1);
+   }
+}
 
-const getAController = (req: Request, res: Response) => {
-  res.send('Hello World!');
-};
+// Graceful shutdown
+function gracefulShutdown(signal: string) {
+   console.log(`Received ${signal}. Closing server...`);
+   if (server) {
+      server.close(() => {
+         console.log('Server closed gracefully');
+         process.exit(0);
+      });
+   } else {
+      process.exit(0);
+   }
+}
 
-app.get('/', getAController);
+// Application bootstrap
+async function bootstrap() {
+   try {
+      await connectToDatabase();
+      //await seed();
 
-app.use(globalErrorHander);
+      server = app.listen(config.port, () => {
+         console.log(`🚀 Application is running on port ${config.port}`);
+      });
 
+      // Listen for termination signals
+      process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+      process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
+      // Error handling
+      process.on('uncaughtException', (error) => {
+         console.error('Uncaught Exception:', error);
+         gracefulShutdown('uncaughtException');
+      });
 
-// Not Found
-app.use(notFound);
+      process.on('unhandledRejection', (error) => {
+         console.error('Unhandled Rejection:', error);
+         gracefulShutdown('unhandledRejection');
+      });
+   } catch (error) {
+      console.error('Error during bootstrap:', error);
+      process.exit(1);
+   }
+}
 
-export default app;
+// Start the application
+bootstrap();
